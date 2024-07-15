@@ -1,9 +1,3 @@
----
-output:
-  pdf_document: default
-  html_document: default
----
-
 # \# SISE2601 Project README
 
 Team 8 - Ella, Keren, Tomer and Eden
