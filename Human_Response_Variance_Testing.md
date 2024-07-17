@@ -35,6 +35,7 @@ library(sentimentr)
 
 ```{r}
 file_list <- list.files(path = "data", pattern = "\\.[tc]sv$", full.names = TRUE)
+
 ```
 
 ```{r}
@@ -310,3 +311,300 @@ ggplot(user_responses_with_mean_analysis) +
   geom_vline(xintercept = data_with_GPT_sr_analysis %>% filter(grepl("e_", qid)) %>% pull(sr3_sentiment) %>% mean(), colour = "red") + # mean sentiment for ALL frnd sr3 results
   labs(title = "People's response variance between all emails, by category ", subtitle = "differentiated by sentiment score, compared to GPT and SR mean results", x="sentiment", y="density")
 ```
+
+
+
+```{r}
+users_data <- user_responses %>%
+  select(all_of(email_responses_fields))
+print(head(users_data))
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(stringr)
+library(spacyr)
+library(politeness)
+# Select necessary fields
+users_data <- user_responses %>%
+  select(all_of(email_responses_fields))
+# Function to calculate average length for a single column
+calculate_average_length <- function(text) {
+  mean(str_count(text, "\\w+"), na.rm = TRUE)
+}
+# Initialize an empty dataframe to store summarized results
+length_df <- data.frame(question = character(), average_length = numeric(), stringsAsFactors = FALSE)
+# Loop through each selected column and calculate average length
+for (col in colnames(users_data)) {
+  column_data <- users_data[[col]]
+  # Ensure the column data is a character vector
+  column_data <- as.character(column_data)
+  # Remove occurrences of "999"
+  column_data <- str_replace_all(column_data, "999", "")
+  # Calculate average length
+  avg_length <- calculate_average_length(column_data)
+  # Store the result in a dataframe
+  length_df <- rbind(length_df, data.frame(question = col, average_length = avg_length))
+}
+# Function to calculate average readability for a single column
+calculate_average_readability <- function(texts) {
+  readability_scores <- quanteda.textstats::textstat_readability(texts, measure = "Flesch")$Flesch
+  mean(readability_scores, na.rm = TRUE)
+}
+# Initialize an empty dataframe to store summarized results
+readability_df <- data.frame(question = character(), average_readability = numeric(), stringsAsFactors = FALSE)
+# Loop through each selected column and calculate average readability
+for (col in colnames(users_data)) {
+  column_data <- users_data[[col]]
+  # Ensure the column data is a character vector
+  column_data <- as.character(column_data)
+  # Calculate average readability
+  avg_readability <- calculate_average_readability(column_data)
+  # Store the result in a dataframe
+  readability_df <- rbind(readability_df, data.frame(question = col, average_readability = avg_readability))}
+# Function to calculate average sentiment for a single column
+calculate_average_sentiment <- function(texts) {
+  sentiment_scores <- sentimentr::sentiment(texts)$sentiment
+  mean(sentiment_scores, na.rm = TRUE)
+}
+# Initialize an empty dataframe to store summarized results
+sentiment_df <- data.frame(question = character(), average_sentiment = numeric(), stringsAsFactors = FALSE)
+# Loop through each selected column and calculate average sentiment
+for (col in colnames(users_data)) {
+  column_data <- users_data[[col]]
+  # Ensure the column data is a character vector
+  column_data <- as.character(column_data)
+  # Calculate average sentiment
+  avg_sentiment <- calculate_average_sentiment(column_data)
+  # Store the result in a dataframe
+  sentiment_df <- rbind(sentiment_df, data.frame(question = col, average_sentiment = avg_sentiment))
+}
+# Function to calculate politeness for a single column
+calculate_average_politeness <- function(texts) {
+  politeness_scores <- politeness::politeness(texts)
+  average_politeness <- rowMeans(politeness_scores, na.rm = TRUE)
+  return(mean(average_politeness, na.rm = TRUE))
+}
+# Initialize an empty dataframe to store summarized results
+politeness_df <- data.frame(question = character(), average_politeness = numeric(), stringsAsFactors = FALSE)
+# Loop through each selected column and calculate average politeness
+for (col in colnames(users_data)) {
+  column_data <- users_data[[col]]
+  # Ensure the column data is a character vector
+  column_data <- as.character(column_data)
+  # Calculate average politeness
+  avg_politeness <- calculate_average_politeness(column_data)
+  # Store the result in a dataframe
+  politeness_df <- rbind(politeness_df, data.frame(question = col, average_politeness = avg_politeness))
+}
+# Combine dataframes based on the 'question' column
+combined_df <- politeness_df %>%
+  full_join(length_df, by = "question") %>%
+  full_join(sentiment_df, by = "question") %>%
+  full_join(readability_df, by = "question")
+
+# Display the first few rows of the combined dataframe
+print(combined_df)
+
+```
+
+
+```{r}
+#Calculate word lengths for each response
+survey_data <- data_with_gpt %>%
+  select(qid, GPT, sr1, sr2, sr3) %>%  # Ensure we are working only with relevant columns
+  mutate(
+    GPT_length = sapply(strsplit(GPT, "\\s+"), length),
+    sr1_length = sapply(strsplit(sr1, "\\s+"), length),
+    sr2_length = sapply(strsplit(sr2, "\\s+"), length),
+    sr3_length = sapply(strsplit(sr3, "\\s+"), length),
+    # Combine sr1, sr2, sr3 into a single column
+    combined_sr = paste(sr1, sr2, sr3, sep = " ")
+  )
+
+#Calculate the average length for sr1, sr2, sr3
+survey_data <- survey_data %>%
+  mutate(
+    sr_length = rowMeans(select(., sr1_length, sr2_length, sr3_length), na.rm = TRUE)
+  )
+
+#Calculate politeness scores
+gpt_politeness <- politeness(survey_data$GPT, parser = "none")
+sr_politeness <- politeness(survey_data$combined_sr, parser = "none")
+
+# Extract average politeness scores
+gpt_politeness_score <- rowMeans(as.matrix(gpt_politeness), na.rm = TRUE)
+combined_sr_politeness_score <- rowMeans(as.matrix(sr_politeness), na.rm = TRUE)
+
+#Create quanteda corpus for readability calculations
+corpus_gpt <- quanteda::corpus(survey_data$GPT)
+corpus_combined_sr <- quanteda::corpus(survey_data$combined_sr)
+
+# Calculate readability scores
+readability_gpt <- quanteda.textstats::textstat_readability(corpus_gpt, measure = "Flesch") %>% pull(Flesch)
+readability_combined_sr <- quanteda.textstats::textstat_readability(corpus_combined_sr, measure = "Flesch") %>% pull(Flesch)
+
+#Calculate sentiment scores
+gpt_sentiment <- sentimentr::sentiment(survey_data$GPT) %>% 
+  group_by(element_id) %>% 
+  summarize(sentiment = mean(sentiment, na.rm = TRUE)) %>% 
+  pull(sentiment)
+
+sr_sentiment <- sentimentr::sentiment(survey_data$combined_sr) %>% 
+  group_by(element_id) %>% 
+  summarize(sentiment = mean(sentiment, na.rm = TRUE)) %>% 
+  pull(sentiment)
+# Step 6: Add the politeness, readability, and sentiment scores to survey_data
+survey_data <- survey_data %>%
+  mutate(
+    GPT_politeness = gpt_politeness_score,
+    sr_politeness = combined_sr_politeness_score,
+    GPT_readability = readability_gpt,
+    sr_readability = readability_combined_sr,
+    GPT_sentiment = gpt_sentiment,
+    sr_sentiment = sr_sentiment
+  )
+
+# Summarize the data
+summary_data <- survey_data %>%
+  select(qid, 
+         GPT_length, sr_length, 
+         GPT_politeness, sr_politeness, 
+         GPT_readability, sr_readability, 
+         GPT_sentiment, sr_sentiment)
+
+summary_data <- summary_data %>%
+  rename(question = qid)
+# Perform the join
+final_combined_data <- combined_df %>%
+  left_join(summary_data, by = "question")
+
+ength_data <- final_combined_data %>%
+  select(question, average_length, GPT_length, sr_length) %>%
+  pivot_longer(cols = c(average_length, GPT_length, sr_length),
+               names_to = "Source",
+               values_to = "Length") %>%
+  mutate(Source = recode(Source,
+                         "average_length" = "Human",
+                         "GPT_length" = "GPT",
+                         "sr_length" = "SR"))
+# Reshape data to long format for plotting sentiments
+sentiment_data <- final_combined_data %>%
+  select(question, average_sentiment, GPT_sentiment, sr_sentiment) %>%
+  pivot_longer(cols = c(average_sentiment, GPT_sentiment, sr_sentiment),
+               names_to = "Source",
+               values_to = "Sentiment") %>%
+  mutate(Source = recode(Source,
+                         "average_sentiment" = "Human",
+                         "GPT_sentiment" = "GPT",
+                         "sr_sentiment" = "SR"))
+# Reshape data to long format for plotting politeness
+politeness_data <- final_combined_data %>%
+  select(question, average_politeness, GPT_politeness, sr_politeness) %>%
+  pivot_longer(cols = c(average_politeness, GPT_politeness, sr_politeness),
+               names_to = "Source",
+               values_to = "Politeness") %>%
+  mutate(Source = recode(Source,
+                         "average_politeness" = "Human",
+                         "GPT_politeness" = "GPT",
+                         "sr_politeness" = "SR"))
+# Reshape data to long format for plotting readability
+readability_data <- final_combined_data %>%
+  select(question, average_readability, GPT_readability, sr_readability) %>%
+  pivot_longer(cols = c(average_readability, GPT_readability, sr_readability),
+               names_to = "Source",
+               values_to = "Readability") %>%
+  mutate(Source = recode(Source,
+                         "average_readability" = "Human",
+                         "GPT_readability" = "GPT",
+                         "sr_readability" = "SR"))
+# Plot comparison of lengths
+ggplot(length_data, aes(x = Source, y = Length, fill = Source)) +
+  geom_boxplot() +
+  labs(title = "Comparison of Response Lengths",
+       x = "Source",
+       y = "Length (words)") +
+  theme_minimal()
+
+# Plot comparison of sentiments
+ggplot(sentiment_data, aes(x = Source, y = Sentiment, fill = Source)) +
+  geom_boxplot() +
+  labs(title = "Comparison of Response Sentiments",
+       x = "Source",
+       y = "Sentiment") +
+  theme_minimal()
+# Plot comparison of politeness
+ggplot(politeness_data, aes(x = Source, y = Politeness, fill = Source)) +
+  geom_boxplot() +
+  labs(title = "Comparison of Response Politeness",
+       x = "Source",
+       y = "Politeness") +
+  theme_minimal()
+# Plot comparison of readability
+ggplot(readability_data, aes(x = Source, y = Readability, fill = Source)) +
+  geom_boxplot() +
+  labs(title = "Comparison of Response Readability",
+       x = "Source",
+       y = "Readability") +
+  theme_minimal()
+
+```
+
+```{r}
+library(dplyr)
+
+# Define the normalize function
+normalize <- function(x) {
+  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+}
+
+final_combined_data <- final_combined_data %>%
+  mutate(
+    norm_average_politeness = normalize(average_politeness),
+    norm_average_length = normalize(average_length),
+    norm_average_sentiment = normalize(average_sentiment),
+    norm_average_readability = normalize(average_readability),
+    norm_sr_politeness = normalize(sr_politeness),
+    norm_sr_length = normalize(sr_length),
+    norm_sr_sentiment = normalize(sr_sentiment),
+    norm_sr_readability = normalize(sr_readability),
+    norm_gpt_politeness = normalize(GPT_politeness),
+    norm_gpt_length = normalize(GPT_length),
+    norm_gpt_sentiment = normalize(GPT_sentiment),
+    norm_gpt_readability = normalize(GPT_readability)
+  )
+# Calculate squared errors for SR1 and GPT compared to human responses
+final_combined_data <- final_combined_data %>%
+  mutate(
+    politeness_error_sr = (norm_average_politeness - norm_sr_politeness)^2,
+    length_error_sr = (norm_average_length - norm_sr_length)^2,
+    sentiment_error_sr = (norm_average_sentiment - norm_sr_sentiment)^2,
+    readability_error_sr=(norm_average_readability - norm_sr_readability)^2,
+    politeness_error_gpt = (norm_average_politeness - norm_gpt_politeness)^2,
+    length_error_gpt = (norm_average_length - norm_gpt_length)^2,
+    sentiment_error_gpt = (norm_average_sentiment - norm_gpt_sentiment)^2,
+    readability_error_gpt = (norm_average_readability - norm_gpt_readability)^2
+  )
+# Calculate MSE for SR1 and GPT
+mse_results <- final_combined_data %>%
+  summarise(
+    mse_politeness_sr = mean(politeness_error_sr, na.rm = TRUE),
+    mse_politeness_gpt = mean(politeness_error_gpt, na.rm = TRUE),
+    mse_length_sr = mean(length_error_sr, na.rm = TRUE),
+    mse_length_gpt = mean(length_error_gpt, na.rm = TRUE),
+    mse_sentiment_sr = mean(sentiment_error_sr, na.rm = TRUE),
+    mse_sentiment_gpt = mean(sentiment_error_gpt, na.rm = TRUE),
+    mse_readability_sr = mean(readability_error_sr, na.rm = TRUE),
+    mse_readability_gpt = mean(readability_error_gpt, na.rm = TRUE)
+  )
+
+# Display the MSE results
+print(mse_results)
+```
+
+
+
+
